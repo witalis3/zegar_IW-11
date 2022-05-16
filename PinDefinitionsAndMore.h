@@ -54,6 +54,7 @@
  */
 //#define _IR_MEASURE_TIMING // For debugging purposes.
 
+
 /*
  * We do not have pin restrictions for this CPU's, so lets use the hardware PWM for send carrier signal generation
  */

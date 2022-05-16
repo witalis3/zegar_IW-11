@@ -38,5 +38,4 @@ void showTemperatura();
 byte decToBcd(byte val);
 
 
-
 #endif /* PROCESOR_DO_ZEGARA_H_ */

@@ -19,7 +19,7 @@ byte dOW;
 byte hour;
 byte minute;
 byte second;
-bool wyswietlGodzine = true;
+bool wyswietlGodzine = false;
 bool wyswietlDate = false;
 bool wyswietlTemperature = false;
 
