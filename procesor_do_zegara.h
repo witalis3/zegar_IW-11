@@ -35,7 +35,7 @@ void wyswietl(byte data1, byte data2, byte data3, byte data4, byte data5, byte d
 void showZegar();
 void pokazDate();
 void showTemperatura();
-byte decToBcd(byte val);
+void pokazNic();
 
 
 #endif /* PROCESOR_DO_ZEGARA_H_ */

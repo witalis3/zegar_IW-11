@@ -19,9 +19,6 @@ byte dOW;
 byte hour;
 byte minute;
 byte second;
-bool wyswietlGodzine = false;
-bool wyswietlDate = false;
-bool wyswietlTemperature = false;
 
 #include <OneWire.h>
 #include "DallasTemperature.h"
@@ -56,7 +53,8 @@ bool AutoDisplay = true;
 byte czasCzasu = 30;		// czas trwania wyświetlania czasu (godziny, minuty, sekund)
 byte czasDaty = 5;			// czas wyświetlania daty
 byte czasTemperatury = 5; 	// czas wyświetlania temperatury
-
+unsigned long teraz;
+unsigned long poczatek;
 
 
 void setup()
@@ -115,25 +113,34 @@ void setup()
 	sensors.begin();
 
 	// ledy:
-	  strip.begin(SPI_CLOCK_DIV16); // 8 Mhz
-	  strip.show();
+	strip.begin(SPI_CLOCK_DIV16); // 8 Mhz
+	strip.setPixelColor(1, Color(0,0,0));
+	strip.show();
+	poczatek = millis();
 }
 
 void loop()
 {
-	strip.setPixelColor(1, Color(0,0,0));
-	strip.show();
-	if (wyswietlGodzine)
+	teraz = millis() - poczatek;
+	unsigned long czasCzasuL = czasCzasu*1000;
+	unsigned long czasDatyL = czasDaty*1000;
+	unsigned long czasTemperaturyL = czasTemperatury*1000;
+	if (teraz > 0 and teraz <= czasCzasuL)
 	{
 		showZegar();
 	}
-	if (wyswietlDate)
+	else if (teraz > czasCzasuL and teraz <= czasCzasuL + czasDatyL)
 	{
 		pokazDate();
 	}
-	if (wyswietlTemperature)
+	else if (teraz > czasCzasuL + czasDatyL and teraz <= czasCzasuL + czasDatyL + czasTemperaturyL)
 	{
 		showTemperatura();
+	}
+	else
+	{
+		poczatek = millis();
+		pokazNic();
 	}
 
     /*
@@ -236,29 +243,6 @@ void pokazDate()
 	byte dziesiatkiLat = ~segmenty[year/10];
 	byte jednostkiLat = ~segmenty[year%10];
 	wyswietl(dziesiatkiDni, jednostkiDni, dziesiatkiMiesiecy, jednostkiMiesiecy, dziesiatkiLat, jednostkiLat);
-	/*
-	uint8_t i;
-	for (i = 0; i < 8; i++)
-	{
-		digitalWrite(data1_PIN, (dziesiatkiDni & 128) != 0);
-		dziesiatkiDni <<= 1;
-		digitalWrite(data2_PIN, (jednostkiDni & 128) != 0);
-		jednostkiDni <<= 1;
-		digitalWrite(data3_PIN, (dziesiatkiMiesiecy & 128) != 0);
-		dziesiatkiMiesiecy <<= 1;
-		digitalWrite(data4_PIN, (jednostkiMiesiecy & 128) != 0);
-		jednostkiMiesiecy <<= 1;
-		digitalWrite(data5_PIN, (dziesiatkiLat & 128) != 0);
-		dziesiatkiLat <<= 1;
-		digitalWrite(data6_PIN, (jednostkiLat & 128) != 0);
-		jednostkiLat <<= 1;
-
-		digitalWrite(CLK_PIN, HIGH);
-		digitalWrite(CLK_PIN, LOW);
-	}
-    digitalWrite(STK_PIN, HIGH);
-    digitalWrite(STK_PIN, LOW);
-    */
 }
 /*
  * wyświetlanie aktualnego czasu
@@ -275,29 +259,6 @@ void showZegar()
 	byte dziesiatkiSekund = ~segmenty[second/10];	// piąta cyfra
 	byte jednostkiSekund = ~segmenty[second%10];	// szósta cyfra
 	wyswietl(dziesiatkiGodzin, jednostkiGodzin, dziesiatkiMinut, jednostkiMinut, dziesiatkiSekund, jednostkiSekund);
-	/*
-	uint8_t i;
-	for (i = 0; i < 8; i++)
-	{
-		digitalWrite(data1_PIN, (dziesiatkiGodzin & 128) != 0);
-		dziesiatkiGodzin <<= 1;
-		digitalWrite(data2_PIN, (jednostkiGodzin & 128) != 0);
-		jednostkiGodzin <<= 1;
-		digitalWrite(data3_PIN, (dziesiatkiMinut & 128) != 0);
-		dziesiatkiMinut <<= 1;
-		digitalWrite(data4_PIN, (jednostkiMinut & 128) != 0);
-		jednostkiMinut <<= 1;
-		digitalWrite(data5_PIN, (dziesiatkiSekund & 128) != 0);
-		dziesiatkiSekund <<= 1;
-		digitalWrite(data6_PIN, (jednostkiSekund & 128) != 0);
-		jednostkiSekund <<= 1;
-
-		digitalWrite(CLK_PIN, HIGH);
-		digitalWrite(CLK_PIN, LOW);
-	}
-    digitalWrite(STK_PIN, HIGH);
-    digitalWrite(STK_PIN, LOW);
-    */
 }
 
 /*
@@ -319,33 +280,15 @@ void showTemperatura()
 	// Check if reading was successful
 	if (tempC != DEVICE_DISCONNECTED_C)
 	{
+#ifdef DEBUGo
 		Serial.println(tempC);
+#endif
 		int tempI = 10 * tempC;
 		byte dziesiatkiTemperatury = ~segmenty[tempI/100];
 		tempI = tempI % 100;
 		byte jednostkiTemperatury = ~segmenty_z_p[tempI/10];
 		byte dziesiateTemperatury = ~segmenty[tempI%10];
 		wyswietl(0xFF,0xFF ,dziesiatkiTemperatury , jednostkiTemperatury, dziesiateTemperatury, 0xFF);
-		/*
-		uint8_t i;
-		for (i = 0; i < 8; i++)
-		{
-			digitalWrite(data1_PIN, HIGH);
-			digitalWrite(data2_PIN, HIGH);
-			digitalWrite(data3_PIN, (dziesiatkiTemperatury & 128) != 0);
-			dziesiatkiTemperatury <<= 1;
-			digitalWrite(data4_PIN, (jednostkiTemperatury & 128) != 0);
-			jednostkiTemperatury <<= 1;
-			digitalWrite(data5_PIN, (dziesiateTemperatury & 128) != 0);
-			dziesiateTemperatury <<= 1;
-			digitalWrite(data6_PIN, HIGH);
-
-			digitalWrite(CLK_PIN, HIGH);
-			digitalWrite(CLK_PIN, LOW);
-		}
-		digitalWrite(STK_PIN, HIGH);
-		digitalWrite(STK_PIN, LOW);
-		*/
 	}
 	else
 	{
@@ -356,12 +299,10 @@ void showTemperatura()
 #endif
 	}
 }
-byte decToBcd(byte val)
+void pokazNic()
 {
-// Convert normal decimal numbers to binary coded decimal
-	return ( (val/10*16) + (val%10) );
+	wyswietl(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF);
 }
-
 void rainbow(uint8_t wait) {
   int i, j;
 
