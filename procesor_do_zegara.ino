@@ -39,7 +39,6 @@ DallasTemperature sensors(&oneWire);
 
 #define DECODE_NEC          // Includes Apple and Onkyo
 #define IR_INPUT_PIN    HW_PIN
-#include "PinDefinitionsAndMore.h"
 #include <IRremote.hpp>
 #define DEBUG_BUTTON_PIN 10
 
