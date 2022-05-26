@@ -1,6 +1,9 @@
 #include "Arduino.h"
 #include "procesor_do_zegara.h"
 
+#include <TimerOne.h>
+#include "LPD6803.h"
+
 #include <EEPROM.h>
 
 #include "Adafruit_MCP23008.h"
@@ -39,9 +42,28 @@ DallasTemperature sensors(&oneWire);
 #include <IRremote.hpp>
 #define DEBUG_BUTTON_PIN 10
 
-#include <SPI.h>
-#include "LPD6803_SPI.h"
-LPD6803_SPI strip = LPD6803_SPI(6);		// sterowanie diodami RGB
+//#include <SPI.h>
+#ifdef FASTLED
+#include "FastLED.h"
+#define NUM_LEDS 1
+#define DATA_PIN 11
+#define CLOCK_PIN 13
+CRGB leds[NUM_LEDS];
+#endif
+
+// Choose which 2 pins you will use for output.
+// Can be any valid output pins.
+int dataPin = 11;       // 'yellow' wire
+int clockPin = 13;      // 'green' wire
+// Don't forget to connect 'blue' to ground and 'red' to +5V
+
+// Timer 1 is also used by the strip to send pixel clocks
+
+// Set the first variable to the NUMBER of pixels. 20 = 20 pixels in a row
+LPD6803 strip = LPD6803(1, dataPin, clockPin);
+
+unsigned int i, j;
+
 
 byte segmenty[10] = {B01101111, B01000001, B01110110, B01110011, B01011001, B00111011, B00111111, B01100001, B01111111, B01111011};
 byte segmenty_z_p[10] = {B11101111, B11000001, B11110110, B11110011, B11011001, B10111011, B10111111, B11100001, B11111111, B11111011};
@@ -53,6 +75,7 @@ bool AutoDisplay = true;
 byte czasCzasu = 30;		// czas trwania wyświetlania czasu (godziny, minuty, sekund)
 byte czasDaty = 5;			// czas wyświetlania daty
 byte czasTemperatury = 5; 	// czas wyświetlania temperatury
+bool bylaPokazana = false;	// czy już była pokazana temperatura w danym oknie czasowym
 unsigned long teraz;
 unsigned long poczatek;
 
@@ -113,15 +136,45 @@ void setup()
 	sensors.begin();
 
 	// ledy:
-	strip.begin(SPI_CLOCK_DIV16); // 8 Mhz
-	strip.setPixelColor(1, Color(0,0,0));
-	strip.show();
+#ifdef FASTLED
+    FastLED.addLeds<LPD6803, DATA_PIN, CLOCK_PIN, GRB>(leds, NUM_LEDS);  // GRB ordering is typical
+#endif
+    // The Arduino needs to clock out the data to the pixels
+    // this happens in interrupt timer 1, we can change how often
+    // to call the interrupt. setting CPUmax to 100 will take nearly all all the
+    // time to do the pixel updates and a nicer/faster display,
+    // especially with strands of over 100 dots.
+    // (Note that the max is 'pessimistic', its probably 10% or 20% less in reality)
+
+    strip.setCPUmax(50);  // start with 50% CPU usage. up this if the strand flickers or is slow
+
+    // Start up the LED counter
+    strip.begin();
+
+    // Update the strip, to start they are all 'off'
+    strip.show();
+
 	poczatek = millis();
 }
 
 void loop()
 {
-	teraz = millis() - poczatek;
+	  //unsigned int i, j;
+
+	  for (j=0; j < 96 * 3; j++)
+	  {     // 3 cycles of all 96 colors in the wheel
+	    for (i=0; i < strip.numPixels(); i++)
+	    {
+	      strip.setPixelColor(i, Wheel( (i + j) % 96));
+	    }
+	    strip.show();   // write all the pixels out
+		zegar_razem();
+	    delay(50);
+	  }
+}
+void zegar_razem()
+{
+	teraz = millis() - poczatek;	// czas względem początku
 	unsigned long czasCzasuL = czasCzasu*1000;
 	unsigned long czasDatyL = czasDaty*1000;
 	unsigned long czasTemperaturyL = czasTemperatury*1000;
@@ -135,10 +188,19 @@ void loop()
 	}
 	else if (teraz > czasCzasuL + czasDatyL and teraz <= czasCzasuL + czasDatyL + czasTemperaturyL)
 	{
-		showTemperatura();
+		/*
+		 *  na razie bez temperatury
+		 *
+		 */
+		if (not bylaPokazana)
+		{
+			showTemperatura();
+			bylaPokazana = true;
+		}
 	}
-	else
+	else	// nowy cykl
 	{
+		bylaPokazana = false;
 		poczatek = millis();
 		pokazNic();
 	}
@@ -167,7 +229,7 @@ void loop()
          * !!!Important!!! Enable receiving of the next value,
          * since receiving has stopped after the end of the current received data packet.
          */
-        IrReceiver.resume(); // Enable receiving of the next value
+        //IrReceiver.resume(); // Enable receiving of the next value
 
         /*
          * Finally, check the received data and perform actions according to the received command
@@ -190,15 +252,24 @@ void loop()
 						AutoDisplay = true;
 					//tone(BELL_PIN, 750, 200);
 					break;
-				case 0x15:
-
+				case 0x19:	// minus
+					i = i - 1;
+					Serial.print("i = ");
+					Serial.println(i);
+					break;
+				case 0x40:	// plus
+					i = i + 1;
+					Serial.print("i = ");
+					Serial.println(i);
 					break;
 				default:
 					break;
 				}
+				delay(200);
 			}
 		}
-	} // if (IrReceiver.decode())
+        IrReceiver.resume(); // Enable receiving of the next value
+	} // koniec if (IrReceiver.decode())
 
 }
 /*
@@ -303,47 +374,12 @@ void pokazNic()
 {
 	wyswietl(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF);
 }
-void rainbow(uint8_t wait) {
-  int i, j;
-
-  for (j=0; j < 96 * 3; j++) {     // 3 cycles of all 96 colors in the wheel
-    for (i=0; i < strip.numPixels(); i++) {
-      strip.setPixelColor(i, Wheel( (i + j) % 96));
-    }
-    strip.show();   // write all the pixels out
-    delay(wait);
-  }
-}
 
 // Slightly different, this one makes the rainbow wheel equally distributed
 // along the chain
-void rainbowCycle(uint8_t wait) {
-  int i, j;
-
-  for (j=0; j < 96 * 5; j++) {     // 5 cycles of all 96 colors in the wheel
-    for (i=0; i < strip.numPixels(); i++) {
-      // tricky math! we use each pixel as a fraction of the full 96-color wheel
-      // (thats the i / strip.numPixels() part)
-      // Then add in j which makes the colors go around per pixel
-      // the % 96 is to make the wheel cycle around
-      strip.setPixelColor(i, Wheel( ((i * 96 / strip.numPixels()) + j) % 96) );
-    }
-    strip.show();   // write all the pixels out
-    delay(wait);
-  }
-}
 
 // fill the dots one after the other with said color
 // good for testing purposes
-void colorWipe(uint16_t c, uint8_t wait) {
-  int i;
-
-  for (i=0; i < strip.numPixels(); i++) {
-      strip.setPixelColor(i, c);
-      strip.show();
-      delay(wait);
-  }
-}
 
 /* Helper functions */
 
@@ -351,7 +387,7 @@ void colorWipe(uint16_t c, uint8_t wait) {
 unsigned int Color(byte r, byte g, byte b)
 {
   //Take the lowest 5 bits of each value and append them end to end
-  return( ((unsigned int)g & 0x1F )<<10 | ((unsigned int)b & 0x1F)<<5 | (unsigned int)r & 0x1F);
+  return ( (((unsigned int)g & 0x1F )<<10) | (((unsigned int)b & 0x1F)<<5) | ((unsigned int)r & 0x1F));
 }
 
 //Input a value 0 to 127 to get a color value.
