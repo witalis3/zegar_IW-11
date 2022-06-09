@@ -1,3 +1,6 @@
+/*
+ * atrapa procesora do zegarka na lampkach fluoroscencyjnych IW-11
+ */
 #include "Arduino.h"
 #include "procesor_do_zegara.h"
 
@@ -22,6 +25,10 @@ byte dOW;
 byte hour;
 byte minute;
 byte second;
+bool weekDayLedOn;
+//bool byla_zmiana = false;
+//unsigned long czas_zmiany;
+
 
 #include <OneWire.h>
 #include "DallasTemperature.h"
@@ -40,7 +47,7 @@ DallasTemperature sensors(&oneWire);
 #define DECODE_NEC          // Includes Apple and Onkyo
 #define IR_INPUT_PIN    HW_PIN
 #include <IRremote.hpp>
-#define DEBUG_BUTTON_PIN 10
+#define DEBUG_BUTTON_PIN 10		// używany przez SPI
 
 //#include <SPI.h>
 #ifdef FASTLED
@@ -61,8 +68,18 @@ int clockPin = 13;      // 'green' wire
 
 // Set the first variable to the NUMBER of pixels. 20 = 20 pixels in a row
 LPD6803 strip = LPD6803(1, dataPin, clockPin);
+enum
+{
+	OFF,
+	ODDECH,
+	RED,
+	GREEN,
+	BLUE,
+	TRYB_NUM
+};
+byte trybLedRGB = ODDECH;
 
-unsigned int i, j;
+unsigned int i, j, k;
 
 
 byte segmenty[10] = {B01101111, B01000001, B01110110, B01110011, B01011001, B00111011, B00111111, B01100001, B01111111, B01111011};
@@ -93,6 +110,8 @@ void setup()
 		EEPROM.write(32, czasCzasu);
 		EEPROM.write(33, czasDaty);
 		EEPROM.write(34, czasTemperatury);
+		EEPROM.write(35, weekDayLedOn);
+		EEPROM.write(36, trybLedRGB);
 #ifdef DEBUGo
 		Serial.println("writing initial values into memory");
 #endif
@@ -104,6 +123,8 @@ void setup()
 		czasCzasu = EEPROM.read(32);
 		czasDaty = EEPROM.read(33);
 		czasTemperatury = EEPROM.read(34);
+		weekDayLedOn = EEPROM.read(35);
+		trybLedRGB = EEPROM.read(36);
 #ifdef DEBUGo
 		Serial.println("reading AutoDisplay from memory: ");
 		Serial.println(AutoDisplay);
@@ -118,6 +139,10 @@ void setup()
 
 	Wire.begin();
 	mcp.begin(0);
+	mcp.pinMode(WEEKR_PIN, OUTPUT);
+	mcp.pinMode(WEEKG_PIN, OUTPUT);
+	mcp.pinMode(WEEKB_PIN, OUTPUT);
+
 	pinMode(HW_PIN, INPUT_PULLUP);
 	pinMode(OE_PIN, OUTPUT);
 	digitalWrite(OE_PIN, LOW);		// shift register output enable
@@ -159,18 +184,46 @@ void setup()
 
 void loop()
 {
-	  //unsigned int i, j;
-
-	  for (j=0; j < 96 * 3; j++)
-	  {     // 3 cycles of all 96 colors in the wheel
-	    for (i=0; i < strip.numPixels(); i++)
-	    {
-	      strip.setPixelColor(i, Wheel( (i + j) % 96));
-	    }
-	    strip.show();   // write all the pixels out
-		zegar_razem();
-	    delay(50);
-	  }
+	switch (trybLedRGB)
+	{
+		case OFF:
+			strip.setPixelColor(0, 0, 0, 0);
+			strip.show();
+			zegar_razem();
+			break;
+		case ODDECH:
+			  for (j=0; j < 96 * 3; j++)
+			  {     // 3 cycles of all 96 colors in the wheel
+			    for (i=0; i < strip.numPixels(); i++)
+			    {
+			      strip.setPixelColor(i, Wheel( (i + j) % 96));
+			    }
+			    strip.show();   // write all the pixels out
+				zegar_razem();
+				delay(50);
+			  }
+			break;
+		case RED:
+			strip.setPixelColor(0, 31, 0, 0);
+			strip.show();
+			zegar_razem();
+			break;
+		case GREEN:
+			strip.setPixelColor(0, 0, 31, 0);
+			strip.show();
+			zegar_razem();
+			break;
+		case BLUE:
+			strip.setPixelColor(0, 0, 0, 31);
+			strip.show();
+			zegar_razem();
+			break;
+		default:
+			zegar_razem();
+			break;
+	}
+	zegar_razem();
+	delay(50);
 }
 void zegar_razem()
 {
@@ -188,10 +241,6 @@ void zegar_razem()
 	}
 	else if (teraz > czasCzasuL + czasDatyL and teraz <= czasCzasuL + czasDatyL + czasTemperaturyL)
 	{
-		/*
-		 *  na razie bez temperatury
-		 *
-		 */
 		if (not bylaPokazana)
 		{
 			showTemperatura();
@@ -203,6 +252,24 @@ void zegar_razem()
 		bylaPokazana = false;
 		poczatek = millis();
 		pokazNic();
+	}
+	// dioda dnia tygodnia WeekDay: dzień 1 -> niedziela świeci led czerwony, ..., dzień 7 -> sobota świecą wszysstkie trzy ledy
+	byte weekDay = zegar.getDoW();
+#ifdef DEBUG
+	Serial.print("weekDay: ");
+	Serial.println(weekDay);
+#endif
+	if (weekDayLedOn)
+	{
+		mcp.digitalWrite(WEEKR_PIN, !((weekDay & B00000001) == B00000001));
+		mcp.digitalWrite(WEEKG_PIN, !((weekDay & B00000010) == B00000010));
+		mcp.digitalWrite(WEEKB_PIN, !((weekDay & B00000100) == B00000100));
+	}
+	else
+	{
+		mcp.digitalWrite(WEEKR_PIN, HIGH);
+		mcp.digitalWrite(WEEKG_PIN, HIGH);
+		mcp.digitalWrite(WEEKB_PIN, HIGH);
 	}
 
     /*
@@ -253,14 +320,34 @@ void zegar_razem()
 					//tone(BELL_PIN, 750, 200);
 					break;
 				case 0x19:	// minus
-					i = i - 1;
-					Serial.print("i = ");
-					Serial.println(i);
+					k = k - 1;
+					Serial.print("k = ");
+					Serial.println(k);
 					break;
 				case 0x40:	// plus
-					i = i + 1;
-					Serial.print("i = ");
-					Serial.println(i);
+					k = k + 1;
+					Serial.print("k = ");
+					Serial.println(k);
+					break;
+				case 0x16:	// "0" włączanie/wyłączanie week LED
+					weekDayLedOn = !weekDayLedOn;
+					EEPROM.write(35, weekDayLedOn);
+#ifdef DEBUGo
+					Serial.println("zapisano weekDayLedOn");
+#endif
+					break;
+				case 0x08:	// "4" przełączanie trybów diod LED pod lampami IV-11
+					trybLedRGB = trybLedRGB + 1;
+					j = 96*3;
+					if (trybLedRGB == TRYB_NUM)
+					{
+						trybLedRGB = OFF;
+					}
+					EEPROM.write(36, trybLedRGB);
+#ifdef DEBUGo
+					Serial.print("zapisano trybLedRGB: ");
+					Serial.println(trybLedRGB);
+#endif
 					break;
 				default:
 					break;

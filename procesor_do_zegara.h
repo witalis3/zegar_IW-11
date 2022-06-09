@@ -38,5 +38,4 @@ void showTemperatura();
 void pokazNic();
 void zegar_razem();
 
-
 #endif /* PROCESOR_DO_ZEGARA_H_ */
