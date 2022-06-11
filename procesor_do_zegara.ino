@@ -1,19 +1,20 @@
 /*
- * atrapa procesora do zegarka na lampkach fluoroscencyjnych IW-11
+ * atrapa procesora do zegarka na lampkach fluoroscencyjnych IV-11
  */
 #include "Arduino.h"
 #include "procesor_do_zegara.h"
-
-#include <TimerOne.h>
-#include "LPD6803.h"
-
+#include <Wire.h>
 #include <EEPROM.h>
 
+#include <OneWire.h>
+#include <DS3231.h>
+#include <TimerOne.h>
+#include "LPD6803.h"
+#include "DallasTemperature.h"
 #include "Adafruit_MCP23008.h"
+
 Adafruit_MCP23008 mcp;
 
-#include <DS3231.h>
-#include <Wire.h>
 DS3231 zegar;		// układ zegarka
 bool century = false;
 bool h12Flag;
@@ -26,12 +27,11 @@ byte hour;
 byte minute;
 byte second;
 bool weekDayLedOn;
+bool intervalLedOn;
 //bool byla_zmiana = false;
 //unsigned long czas_zmiany;
 
 
-#include <OneWire.h>
-#include "DallasTemperature.h"
 // Data wire is plugged into port 2 on the Arduino
 #define ONE_WIRE_BUS C18B20_PIN
 // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
@@ -46,26 +46,15 @@ DallasTemperature sensors(&oneWire);
 
 #define DECODE_NEC          // Includes Apple and Onkyo
 #define IR_INPUT_PIN    HW_PIN
-#include <IRremote.hpp>
 #define DEBUG_BUTTON_PIN 10		// używany przez SPI
-
-//#include <SPI.h>
-#ifdef FASTLED
-#include "FastLED.h"
-#define NUM_LEDS 1
-#define DATA_PIN 11
-#define CLOCK_PIN 13
-CRGB leds[NUM_LEDS];
-#endif
+#include <IRremote.hpp>
 
 // Choose which 2 pins you will use for output.
 // Can be any valid output pins.
 int dataPin = 11;       // 'yellow' wire
 int clockPin = 13;      // 'green' wire
 // Don't forget to connect 'blue' to ground and 'red' to +5V
-
 // Timer 1 is also used by the strip to send pixel clocks
-
 // Set the first variable to the NUMBER of pixels. 20 = 20 pixels in a row
 LPD6803 strip = LPD6803(1, dataPin, clockPin);
 enum
@@ -112,6 +101,7 @@ void setup()
 		EEPROM.write(34, czasTemperatury);
 		EEPROM.write(35, weekDayLedOn);
 		EEPROM.write(36, trybLedRGB);
+		EEPROM.write(37, intervalLedOn);
 #ifdef DEBUGo
 		Serial.println("writing initial values into memory");
 #endif
@@ -125,6 +115,7 @@ void setup()
 		czasTemperatury = EEPROM.read(34);
 		weekDayLedOn = EEPROM.read(35);
 		trybLedRGB = EEPROM.read(36);
+		intervalLedOn = EEPROM.read(37);
 #ifdef DEBUGo
 		Serial.println("reading AutoDisplay from memory: ");
 		Serial.println(AutoDisplay);
@@ -142,6 +133,9 @@ void setup()
 	mcp.pinMode(WEEKR_PIN, OUTPUT);
 	mcp.pinMode(WEEKG_PIN, OUTPUT);
 	mcp.pinMode(WEEKB_PIN, OUTPUT);
+	mcp.pinMode(ClockR_PIN, OUTPUT);
+	mcp.pinMode(ClockG_PIN, OUTPUT);
+	mcp.pinMode(ClockB_PIN, OUTPUT);
 
 	pinMode(HW_PIN, INPUT_PULLUP);
 	pinMode(OE_PIN, OUTPUT);
@@ -161,9 +155,6 @@ void setup()
 	sensors.begin();
 
 	// ledy:
-#ifdef FASTLED
-    FastLED.addLeds<LPD6803, DATA_PIN, CLOCK_PIN, GRB>(leds, NUM_LEDS);  // GRB ordering is typical
-#endif
     // The Arduino needs to clock out the data to the pixels
     // this happens in interrupt timer 1, we can change how often
     // to call the interrupt. setting CPUmax to 100 will take nearly all all the
@@ -225,6 +216,44 @@ void loop()
 	zegar_razem();
 	delay(50);
 }
+void ClockLed(byte kolor)
+{
+	if (intervalLedOn)
+	{
+		switch (kolor)
+		{
+			case OFF:
+				mcp.digitalWrite(ClockR_PIN, HIGH);
+				mcp.digitalWrite(ClockG_PIN, HIGH);
+				mcp.digitalWrite(ClockB_PIN, HIGH);
+				break;
+			case RED:
+				mcp.digitalWrite(ClockR_PIN, LOW);
+				mcp.digitalWrite(ClockG_PIN, HIGH);
+				mcp.digitalWrite(ClockB_PIN, HIGH);
+				break;
+			case GREEN:
+				mcp.digitalWrite(ClockR_PIN, HIGH);
+				mcp.digitalWrite(ClockG_PIN, LOW);
+				mcp.digitalWrite(ClockB_PIN, HIGH);
+				break;
+			case BLUE:
+				mcp.digitalWrite(ClockR_PIN, HIGH);
+				mcp.digitalWrite(ClockG_PIN, HIGH);
+				mcp.digitalWrite(ClockB_PIN, LOW);
+				break;
+			default:
+				break;
+		}
+	}
+	else
+	{
+		mcp.digitalWrite(ClockR_PIN, HIGH);
+		mcp.digitalWrite(ClockG_PIN, HIGH);
+		mcp.digitalWrite(ClockB_PIN, HIGH);
+	}
+}
+
 void zegar_razem()
 {
 	teraz = millis() - poczatek;	// czas względem początku
@@ -349,6 +378,13 @@ void zegar_razem()
 					Serial.println(trybLedRGB);
 #endif
 					break;
+				case 0x1C:	// "5" włączanie/wyłączanie diod LED pomiędzy lampami IV-11
+					intervalLedOn = !intervalLedOn;
+					EEPROM.write(37, intervalLedOn);
+#ifdef DEBUGo
+					Serial.println("zapisano intervalLedOn");
+#endif
+					break;
 				default:
 					break;
 				}
@@ -401,6 +437,7 @@ void pokazDate()
 	byte dziesiatkiLat = ~segmenty[year/10];
 	byte jednostkiLat = ~segmenty[year%10];
 	wyswietl(dziesiatkiDni, jednostkiDni, dziesiatkiMiesiecy, jednostkiMiesiecy, dziesiatkiLat, jednostkiLat);
+	ClockLed(RED);
 }
 /*
  * wyświetlanie aktualnego czasu
@@ -417,6 +454,7 @@ void showZegar()
 	byte dziesiatkiSekund = ~segmenty[second/10];	// piąta cyfra
 	byte jednostkiSekund = ~segmenty[second%10];	// szósta cyfra
 	wyswietl(dziesiatkiGodzin, jednostkiGodzin, dziesiatkiMinut, jednostkiMinut, dziesiatkiSekund, jednostkiSekund);
+	ClockLed(GREEN);
 }
 
 /*
@@ -456,6 +494,7 @@ void showTemperatura()
 		Serial.println("Error: Could not read temperature data");
 #endif
 	}
+	ClockLed(BLUE);
 }
 void pokazNic()
 {
