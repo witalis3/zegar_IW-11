@@ -28,9 +28,16 @@ byte minute;
 byte second;
 bool weekDayLedOn;
 bool intervalLedOn;
-//bool byla_zmiana = false;
-//unsigned long czas_zmiany;
-
+bool modeTimeSet;
+bool modeDateSet;
+// zmienne do wyświetlania czasu:
+byte dziesiatkiGodzin;		// pierwsza cyfra
+byte jednostkiGodzin;		// druga cyfra
+byte dziesiatkiMinut;		// trzecia cyfra
+byte jednostkiMinut;		// czwarta cyfra
+byte dziesiatkiSekund;		// piąta cyfra
+byte jednostkiSekund;		// szósta cyfra
+unsigned int rozkaz;		// kod rozkazu z pilota
 
 // Data wire is plugged into port 2 on the Arduino
 #define ONE_WIRE_BUS C18B20_PIN
@@ -66,6 +73,43 @@ enum
 	BLUE,
 	TRYB_NUM
 };
+enum
+{
+	nula = 0x00,		// brak rozkazu
+	power_on = 0x45,
+	menu = 0x47,		// "MENU"
+	mode = 0x44,		// "TEST"
+	plus = 0x40,		// "+"
+	escape	= 0x43,		// "zakręt w lewo"
+	lewo = 0x07,		// "<-"
+	prawo = 0x09,		// "->"
+	minus = 0x19,		// "-"
+	play = 0x15,		// OK
+	weekDayLed = 0x16,	// "0"
+	clear = 0x0D,		// "C"
+	modeTime = 0x0C,	// "1"
+	modeDate = 0x18,	// "2"
+	trzy	= 0x5E,		// "3"
+	trybLed = 0x08,		// "4"
+	intervalLed = 0x1C,	// "5"
+	szesc	= 0x5A,		// "6"
+	siedem	= 0x42,		// "7"
+	osiem	= 0x52,		// "8"
+	dziewiec = 0x4A		// "9"
+};
+enum
+{
+	godzinyModyf = 3,
+	minutyModyf = 4,
+	sekundyModyf = 5
+};
+enum
+{
+	dniModyf = 3,
+	miesiaceModyf = 4,
+	lataModyf = 5
+};
+byte coModyfikowane = godzinyModyf;
 byte trybLedRGB = ODDECH;
 
 unsigned int i, j, k;
@@ -260,27 +304,41 @@ void zegar_razem()
 	unsigned long czasCzasuL = czasCzasu*1000;
 	unsigned long czasDatyL = czasDaty*1000;
 	unsigned long czasTemperaturyL = czasTemperatury*1000;
-	if (teraz > 0 and teraz <= czasCzasuL)
+	if (modeTimeSet or modeDateSet)
 	{
-		showZegar();
-	}
-	else if (teraz > czasCzasuL and teraz <= czasCzasuL + czasDatyL)
-	{
-		pokazDate();
-	}
-	else if (teraz > czasCzasuL + czasDatyL and teraz <= czasCzasuL + czasDatyL + czasTemperaturyL)
-	{
-		if (not bylaPokazana)
+		if (modeTimeSet)
 		{
-			showTemperatura();
-			bylaPokazana = true;
+			showZegar();
+		}
+		if (modeDateSet)
+		{
+			pokazDate();
 		}
 	}
-	else	// nowy cykl
+	else
 	{
-		bylaPokazana = false;
-		poczatek = millis();
-		pokazNic();
+		if (teraz > 0 and teraz <= czasCzasuL)
+		{
+			showZegar();
+		}
+		else if (teraz > czasCzasuL and teraz <= czasCzasuL + czasDatyL)
+		{
+			pokazDate();
+		}
+		else if (teraz > czasCzasuL + czasDatyL and teraz <= czasCzasuL + czasDatyL + czasTemperaturyL)
+		{
+			if (not bylaPokazana)
+			{
+				showTemperatura();
+				bylaPokazana = true;
+			}
+		}
+		else	// nowy cykl
+		{
+			bylaPokazana = false;
+			poczatek = millis();
+			pokazNic();
+		}
 	}
 	// dioda dnia tygodnia WeekDay: dzień 1 -> niedziela świeci led czerwony, ..., dzień 7 -> sobota świecą wszysstkie trzy ledy
 	byte weekDay = zegar.getDoW();
@@ -332,7 +390,7 @@ void zegar_razem()
          */
 		if (IrReceiver.decodedIRData.address == 0)
 		{
-			unsigned int rozkaz = IrReceiver.decodedIRData.command;
+			rozkaz = IrReceiver.decodedIRData.command;
 			if (rozkaz != 0x00)
 			{
 #ifdef DEBUGo
@@ -348,24 +406,24 @@ void zegar_razem()
 						AutoDisplay = true;
 					//tone(BELL_PIN, 750, 200);
 					break;
-				case 0x19:	// minus
+				case minus:	// minus
 					k = k - 1;
 					Serial.print("k = ");
 					Serial.println(k);
 					break;
-				case 0x40:	// plus
+				case plus:	// plus
 					k = k + 1;
 					Serial.print("k = ");
 					Serial.println(k);
 					break;
-				case 0x16:	// "0" włączanie/wyłączanie week LED
+				case weekDayLed:	// "0" włączanie/wyłączanie week LED
 					weekDayLedOn = !weekDayLedOn;
 					EEPROM.write(35, weekDayLedOn);
 #ifdef DEBUGo
 					Serial.println("zapisano weekDayLedOn");
 #endif
 					break;
-				case 0x08:	// "4" przełączanie trybów diod LED pod lampami IV-11
+				case trybLed:	// "4" przełączanie trybów diod LED pod lampami IV-11
 					trybLedRGB = trybLedRGB + 1;
 					j = 96*3;
 					if (trybLedRGB == TRYB_NUM)
@@ -378,12 +436,50 @@ void zegar_razem()
 					Serial.println(trybLedRGB);
 #endif
 					break;
-				case 0x1C:	// "5" włączanie/wyłączanie diod LED pomiędzy lampami IV-11
+				case intervalLed:	// "5" włączanie/wyłączanie diod LED pomiędzy lampami IV-11
 					intervalLedOn = !intervalLedOn;
 					EEPROM.write(37, intervalLedOn);
 #ifdef DEBUGo
 					Serial.println("zapisano intervalLedOn");
 #endif
+					break;
+				case modeTime:	// "1" tryb ustawiania czasu
+#ifdef DEBUGo
+					Serial.println("ustawianie czasu");
+#endif
+					modeTimeSet = true;
+					break;
+				case modeDate:	// "2" tryb ustawiania daty
+#ifdef DEBUGo
+					Serial.println("ustawianie daty");
+#endif
+					modeDateSet = true;
+					break;
+				case play:		// "play" -> zapisanie zmian
+					Serial.println("zapisz:");
+					if (modeTimeSet)
+					{
+						zegar.setHour(hour);
+						zegar.setMinute(minute);
+						zegar.setSecond(second);
+						modeTimeSet = false;
+						Serial.println("zapisano czas.");
+					}
+					if (modeDateSet)
+					{
+						zegar.setDate(date);
+						zegar.setMonth(month);
+						zegar.setYear(year);
+						modeDateSet = false;
+						Serial.println("zapisano datę.");
+					}
+					break;
+				case escape:	// "skręt w lewo" klawisz Escape -> wyjście z trybów bez zapisu
+#ifdef DEBUGo
+					Serial.println("escape");
+#endif
+					modeTimeSet = false;
+					modeDateSet = false;
 					break;
 				default:
 					break;
@@ -427,13 +523,93 @@ void wyswietl(byte data1 = 0x0, byte data2 = 0x0, byte data3 = 0x0, byte data4 =
  */
 void pokazDate()
 {
-	date = zegar.getDate();
+	if (modeDateSet)
+	{
+		if (rozkaz == prawo)
+		{
+			coModyfikowane = coModyfikowane + 1;
+			if (coModyfikowane > lataModyf)
+				coModyfikowane = dniModyf;
+		}
+		if (rozkaz == lewo)
+		{
+			coModyfikowane = coModyfikowane - 1;
+			if (coModyfikowane < dniModyf)
+				coModyfikowane = lataModyf;
+		}
+		if (rozkaz == plus)
+		{
+			switch (coModyfikowane)
+			{
+				case dniModyf:
+					date = date + 1;
+					if (date > 31)
+						date = 1;
+					break;
+				case miesiaceModyf:
+					month = month + 1;
+					if (month > 12)
+						month = 1;
+					break;
+				case lataModyf:
+					year = year + 1;
+					if (year > 99)
+						year = 0;
+					break;
+				default:
+					break;
+			}
+		}
+		if (rozkaz == minus)
+		{
+			switch (coModyfikowane)
+			{
+				case dniModyf:
+					if (date == 0)
+					{
+						date = 31;
+					}
+					else
+					{
+						date = date - 1;
+					}
+					break;
+				case miesiaceModyf:
+					if (month == 0)
+					{
+						month = 1;
+					}
+					else
+					{
+						month = month - 1;
+					}
+					break;
+				case lataModyf:
+					if (year == 0)
+					{
+						year = 99;
+					}
+					else
+					{
+						year = year - 1;
+					}
+					break;
+				default:
+					break;
+			}
+		}
+		rozkaz = nula;
+	}
+	else
+	{
+		date = zegar.getDate();
+		month = zegar.getMonth(century);
+		year = zegar.getYear();
+	}
 	byte dziesiatkiDni = ~segmenty[date/10];
 	byte jednostkiDni = ~segmenty[date%10];
-	month = zegar.getMonth(century);
 	byte dziesiatkiMiesiecy = ~segmenty[month/10];
 	byte jednostkiMiesiecy = ~segmenty[month%10];
-	year = zegar.getYear();
 	byte dziesiatkiLat = ~segmenty[year/10];
 	byte jednostkiLat = ~segmenty[year%10];
 	wyswietl(dziesiatkiDni, jednostkiDni, dziesiatkiMiesiecy, jednostkiMiesiecy, dziesiatkiLat, jednostkiLat);
@@ -444,15 +620,95 @@ void pokazDate()
  */
 void showZegar()
 {
-	hour = zegar.getHour(h12Flag, pmFlag);
-	byte dziesiatkiGodzin = ~segmenty[hour/10];		// pierwsza cyfra
-	byte jednostkiGodzin = ~segmenty[hour%10];		// druga cyfra
-	minute = zegar.getMinute();
-	byte dziesiatkiMinut = ~segmenty[minute/10];	// trzecia cyfra
-	byte jednostkiMinut = ~segmenty[minute%10];		// czwarta cyfra
-	second = zegar.getSecond();
-	byte dziesiatkiSekund = ~segmenty[second/10];	// piąta cyfra
-	byte jednostkiSekund = ~segmenty[second%10];	// szósta cyfra
+	if (modeTimeSet)
+	{
+		if (rozkaz == prawo)
+		{
+			coModyfikowane = coModyfikowane + 1;
+			if (coModyfikowane > sekundyModyf)
+				coModyfikowane = godzinyModyf;
+		}
+		if (rozkaz == lewo)
+		{
+			coModyfikowane = coModyfikowane - 1;
+			if (coModyfikowane < godzinyModyf)
+				coModyfikowane = sekundyModyf;
+		}
+		if (rozkaz == plus)
+		{
+			switch (coModyfikowane)
+			{
+				case godzinyModyf:
+					hour = hour + 1;
+					if (hour > 23)
+						hour = 0;
+					break;
+				case minutyModyf:
+					minute = minute + 1;
+					if (minute > 59)
+						minute = 0;
+					break;
+				case sekundyModyf:
+					second = second + 1;
+					if (second > 59)
+						second = 0;
+					break;
+				default:
+					break;
+			}
+		}
+		if (rozkaz == minus)
+		{
+			switch (coModyfikowane)
+			{
+				case godzinyModyf:
+					if (hour == 0)
+					{
+						hour = 23;
+					}
+					else
+					{
+						hour = hour - 1;
+					}
+					break;
+				case minutyModyf:
+					if (minute == 0)
+					{
+						minute = 59;
+					}
+					else
+					{
+						minute = minute - 1;
+					}
+					break;
+				case sekundyModyf:
+					if (second == 0)
+					{
+						second = 59;
+					}
+					else
+					{
+						second = second - 1;
+					}
+					break;
+				default:
+					break;
+			}
+		}
+		rozkaz = nula;
+	}
+	else
+	{
+		hour = zegar.getHour(h12Flag, pmFlag);
+		minute = zegar.getMinute();
+		second = zegar.getSecond();
+	}
+	dziesiatkiGodzin = ~segmenty[hour/10];		// pierwsza cyfra
+	jednostkiGodzin = ~segmenty[hour%10];		// druga cyfra
+	dziesiatkiMinut = ~segmenty[minute/10];	// trzecia cyfra
+	jednostkiMinut = ~segmenty[minute%10];		// czwarta cyfra
+	dziesiatkiSekund = ~segmenty[second/10];	// piąta cyfra
+	jednostkiSekund = ~segmenty[second%10];	// szósta cyfra
 	wyswietl(dziesiatkiGodzin, jednostkiGodzin, dziesiatkiMinut, jednostkiMinut, dziesiatkiSekund, jednostkiSekund);
 	ClockLed(GREEN);
 }
