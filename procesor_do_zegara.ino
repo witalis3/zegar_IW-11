@@ -129,6 +129,9 @@ bool bylaPokazana = false;	// czy już była pokazana temperatura w danym oknie 
 unsigned long teraz;
 unsigned long poczatek;
 
+unsigned long timeAtCycleStart, timeAtCycleEnd, timeStartMorseDownTime, actualCycleTime, timeToogle500ms = 0;
+bool toogle500ms;
+
 
 void setup()
 {
@@ -219,6 +222,12 @@ void setup()
 
 void loop()
 {
+	timeAtCycleStart = millis();
+	if ((timeAtCycleStart - timeToogle500ms) > 500)
+	{
+		toogle500ms = not toogle500ms;
+		timeToogle500ms = timeAtCycleStart;
+	}
 	switch (trybLedRGB)
 	{
 		case OFF:
@@ -496,6 +505,24 @@ void zegar_razem()
  */
 void wyswietl(byte data1 = 0x0, byte data2 = 0x0, byte data3 = 0x0, byte data4 = 0x0, byte data5 = 0x0, byte data6 = 0x0)
 {
+	if ((modeTimeSet or modeDateSet) and toogle500ms)
+	{
+		if ((coModyfikowane == godzinyModyf) or (coModyfikowane == dniModyf))
+		{
+			data1 = 0xFF;
+			data2 = 0xFF;
+		}
+		if ((coModyfikowane == minutyModyf) or (coModyfikowane == miesiaceModyf))
+		{
+			data3 = 0xFF;
+			data4 = 0xFF;
+		}
+		if ((coModyfikowane == sekundyModyf) or (coModyfikowane == lataModyf))
+		{
+			data5 = 0xFF;
+			data6 = 0xFF;
+		}
+	}
 	byte i;
 	for (i = 0; i < 8; i++)
 	{
@@ -515,8 +542,8 @@ void wyswietl(byte data1 = 0x0, byte data2 = 0x0, byte data3 = 0x0, byte data4 =
 		digitalWrite(CLK_PIN, HIGH);
 		digitalWrite(CLK_PIN, LOW);
 	}
-    digitalWrite(STK_PIN, HIGH);
-    digitalWrite(STK_PIN, LOW);
+	digitalWrite(STK_PIN, HIGH);
+	digitalWrite(STK_PIN, LOW);
 }
 /*
  * wyświetlanie aktualnej daty
